@@ -12,9 +12,12 @@ import { RDSClient, DescribeDBInstancesCommand } from "@aws-sdk/client-rds";
 // ── Gemini API helper ──────────────────────────────────────────────────────
 // Model: gemini-2.5-flash-lite — best free tier (15 RPM, 1000 RPD, no cost)
 // Get your free key: https://aistudio.google.com/apikey
-const GEMINI_MODEL = "gemini-2.5-flash-lite-preview-06-17";
+const GEMINI_MODEL = "gemini-2.0-flash"; // stable GA model
 
 async function callGemini(prompt, systemInstruction = null) {
+  if (!process.env.GEMINI_API_KEY) {
+    throw new Error("GEMINI_API_KEY environment variable is not set on the server.");
+  }
   const body = {
     contents: [{ role: "user", parts: [{ text: prompt }] }],
     generationConfig: { maxOutputTokens: 800, temperature: 0.3 },
@@ -39,23 +42,20 @@ async function callGemini(prompt, systemInstruction = null) {
 
 const app = express();
 
-// ── CORS ───────────────────────────────────────────────────────────────────
-const corsOptions = {
+// ── CORS: only allow your GitHub Pages domain ──────────────────────────────
+app.use(cors({
   origin: [
-    "https://nishverse.com",       // custom domain
-    "https://www.nishverse.com",   // www variant
-    "https://nish3094.github.io",  // GitHub Pages fallback
-    "http://localhost:3000",       // local dev
-    "http://127.0.0.1:5500",       // VS Code Live Server
+    "https://nish3094.github.io",
+    "http://localhost:3000",   // for local testing
+    "http://127.0.0.1:5500",  // for VS Code Live Server
   ],
   methods: ["GET", "POST", "OPTIONS", "PUT", "DELETE"],
   allowedHeaders: ["Content-Type", "Authorization"],
-};
+}));
 
-// Handle preflight requests BEFORE express.json() so they resolve cleanly
-app.options("*", cors(corsOptions));
-app.use(cors(corsOptions));
+
 app.use(express.json());
+app.options("*", cors());
 // ── Health check ───────────────────────────────────────────────────────────
 app.get("/", (_req, res) => res.json({ status: "lets go!!! Nishverse backend running" }));
 
@@ -105,19 +105,53 @@ app.post("/scan", async (req, res) => {
 
   const findings = [];
 
-  // ── 1. S3: Public access block ─────────────────────────────────────────
+  // ── 1. S3: Public access block + ACL ──────────────────────────────────
   try {
     const s3 = makeClient(S3Client, creds);
     const { Buckets = [] } = await s3.send(new ListBucketsCommand({}));
 
     for (const bucket of Buckets) {
-      const block = await safe(() =>
-        s3.send(new GetPublicAccessBlockCommand({ Bucket: bucket.Name }))
-      );
-      const cfg = block?.PublicAccessBlockConfiguration;
-      const isPublic = !cfg ||
-        !cfg.BlockPublicAcls || !cfg.BlockPublicPolicy ||
-        !cfg.IgnorePublicAcls || !cfg.RestrictPublicBuckets;
+      let isPublic = false;
+      let reason = "";
+
+      // Check public access block — AWS throws (not returns null) when no config exists
+      try {
+        const block = await s3.send(new GetPublicAccessBlockCommand({ Bucket: bucket.Name }));
+        const cfg = block?.PublicAccessBlockConfiguration;
+        if (!cfg || !cfg.BlockPublicAcls || !cfg.BlockPublicPolicy ||
+            !cfg.IgnorePublicAcls || !cfg.RestrictPublicBuckets) {
+          isPublic = true;
+          reason = "public access block is not fully enabled";
+        }
+      } catch (e) {
+        if (e.name === "NoSuchPublicAccessBlockConfiguration") {
+          // No block config at all — bucket is potentially public
+          isPublic = true;
+          reason = "no public access block configuration exists";
+        } else if (e.name !== "AccessDenied" && e.name !== "AccessDeniedException") {
+          throw e;
+        }
+      }
+
+      // Also check ACL for public grants (even if block config looks ok)
+      if (!isPublic) {
+        try {
+          const acl = await s3.send(new GetBucketAclCommand({ Bucket: bucket.Name }));
+          const publicUris = [
+            "http://acs.amazonaws.com/groups/global/AllUsers",
+            "http://acs.amazonaws.com/groups/global/AuthenticatedUsers",
+          ];
+          const hasPublicAcl = (acl.Grants || []).some(
+            g => g.Grantee?.URI && publicUris.includes(g.Grantee.URI)
+          );
+          if (hasPublicAcl) {
+            isPublic = true;
+            reason = "bucket ACL grants public access";
+          }
+        } catch (e) {
+          if (e.name !== "AccessDenied" && e.name !== "AccessDeniedException") throw e;
+        }
+      }
 
       if (isPublic) {
         findings.push({
@@ -128,7 +162,7 @@ app.post("/scan", async (req, res) => {
           cis:         "CIS 2.1.5",
           soc2:        "CC6.1",
           resource:    `aws_s3_bucket.${bucket.Name}`,
-          description: `Bucket "${bucket.Name}" has public access block disabled, exposing objects to the internet.`,
+          description: `Bucket "${bucket.Name}" is public: ${reason}.`,
         });
       }
     }
