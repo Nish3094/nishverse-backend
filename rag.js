@@ -13,14 +13,14 @@ const PINECONE_INDEX    = process.env.PINECONE_INDEX || "nishverse-cis";
 const PINECONE_BASE_URL = process.env.PINECONE_INDEX_HOST; // e.g. https://nishverse-cis-xxxx.svc.pinecone.io
 
 // ── Embedding via Hugging Face Inference API (free, no credit card) ────────
-// Model: BAAI/bge-large-en-v1.5 — 1024 dimensions — matches your Pinecone index
+// Model: intfloat/multilingual-e5-large — 1024 dimensions, officially supported by HF hf-inference
 // Get free token: https://huggingface.co/settings/tokens (read token is enough)
 async function embed(text) {
   if (!process.env.HF_API_KEY) {
     throw new Error("HF_API_KEY environment variable is not set.");
   }
 
-  const MODEL = "BAAI/bge-large-en-v1.5";  // 1024 dimensions — matches your Pinecone index
+  const MODEL = "intfloat/multilingual-e5-large";  // 1024 dimensions — officially supported by HF inference
   const res = await fetch(
     `https://router.huggingface.co/hf-inference/models/${MODEL}/pipeline/feature-extraction`,
     {
