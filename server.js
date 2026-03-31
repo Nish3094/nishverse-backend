@@ -1,7 +1,7 @@
 import express from "express";
 import cors from "cors";
 import { STSClient, AssumeRoleCommand } from "@aws-sdk/client-sts";
-import { S3Client, ListBucketsCommand, GetBucketAclCommand, GetPublicAccessBlockCommand } from "@aws-sdk/client-s3";
+import { S3Client, ListBucketsCommand, GetBucketLocationCommand, GetBucketAclCommand, GetPublicAccessBlockCommand } from "@aws-sdk/client-s3";
 import { IAMClient, GetAccountPasswordPolicyCommand, ListUsersCommand, ListAccessKeysCommand, GetAccountSummaryCommand } from "@aws-sdk/client-iam";
 import { EC2Client, DescribeSecurityGroupsCommand, DescribeVpcsCommand, DescribeFlowLogsCommand, DescribeVolumesCommand } from "@aws-sdk/client-ec2";
 import { CloudTrailClient, DescribeTrailsCommand, GetTrailStatusCommand } from "@aws-sdk/client-cloudtrail";
@@ -118,9 +118,21 @@ app.post("/scan", async (req, res) => {
       let isPublic = false;
       let reason = "";
 
+      // Get bucket region and use a region-specific client
+      let s3Regional = s3;
+      try {
+        const { LocationConstraint } = await s3.send(
+          new GetBucketLocationCommand({ Bucket: bucket.Name })
+        );
+        const bucketRegion = LocationConstraint || "us-east-1"; // null means us-east-1
+        s3Regional = makeClient(S3Client, creds, bucketRegion);
+      } catch (e) {
+        console.error(`S3 region lookup failed for ${bucket.Name}:`, e.message);
+      }
+
       // Check public access block — AWS throws (not returns null) when no config exists
       try {
-        const block = await s3.send(new GetPublicAccessBlockCommand({ Bucket: bucket.Name }));
+        const block = await s3Regional.send(new GetPublicAccessBlockCommand({ Bucket: bucket.Name }));
         const cfg = block?.PublicAccessBlockConfiguration;
         if (!cfg || !cfg.BlockPublicAcls || !cfg.BlockPublicPolicy ||
             !cfg.IgnorePublicAcls || !cfg.RestrictPublicBuckets) {
@@ -140,7 +152,7 @@ app.post("/scan", async (req, res) => {
       // Also check ACL for public grants (even if block config looks ok)
       if (!isPublic) {
         try {
-          const acl = await s3.send(new GetBucketAclCommand({ Bucket: bucket.Name }));
+          const acl = await s3Regional.send(new GetBucketAclCommand({ Bucket: bucket.Name }));
           const publicUris = [
             "http://acs.amazonaws.com/groups/global/AllUsers",
             "http://acs.amazonaws.com/groups/global/AuthenticatedUsers",
@@ -194,8 +206,19 @@ app.post("/scan", async (req, res) => {
   // ── 3. IAM: Password policy ───────────────────────────────────────────
   try {
     const iam = makeClient(IAMClient, creds);
-    const policy = await safe(() => iam.send(new GetAccountPasswordPolicyCommand({})));
-    if (!policy || (policy.PasswordPolicy?.MinimumPasswordLength || 0) < 14) {
+    let passwordPolicy = null;
+    try {
+      const result = await iam.send(new GetAccountPasswordPolicyCommand({}));
+      passwordPolicy = result.PasswordPolicy;
+    } catch (e) {
+      if (e.name === "NoSuchEntityException" || e.name === "NoSuchEntity") {
+        // No password policy set at all — definitely a finding
+        passwordPolicy = null;
+      } else if (e.name !== "AccessDenied" && e.name !== "AccessDeniedException") {
+        throw e;
+      }
+    }
+    if (!passwordPolicy || (passwordPolicy.MinimumPasswordLength || 0) < 14) {
       findings.push({
         id:          "pwd_policy",
         service:     "IAM",
@@ -204,10 +227,12 @@ app.post("/scan", async (req, res) => {
         cis:         "CIS 1.8",
         soc2:        "CC6.1",
         resource:    "aws_iam_account_password_policy",
-        description: "Password policy allows passwords shorter than 14 characters or has no complexity requirements.",
+        description: !passwordPolicy
+          ? "No IAM password policy is configured. AWS accounts with no password policy have no minimum security requirements."
+          : "Password policy allows passwords shorter than 14 characters or has no complexity requirements.",
       });
     }
-  } catch (e) { console.error("Password policy check error:", e.message); }
+  } catch (e) { console.error("Password policy check error:", e.name, e.message); }
 
   // ── 4. IAM: Access key rotation ───────────────────────────────────────
   try {
