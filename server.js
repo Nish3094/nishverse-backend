@@ -112,6 +112,7 @@ app.post("/scan", async (req, res) => {
   try {
     const s3 = makeClient(S3Client, creds);
     const { Buckets = [] } = await s3.send(new ListBucketsCommand({}));
+    console.log(`S3: found ${Buckets.length} bucket(s):`, Buckets.map(b => b.Name));
 
     for (const bucket of Buckets) {
       let isPublic = false;
@@ -156,6 +157,7 @@ app.post("/scan", async (req, res) => {
         }
       }
 
+      console.log(`S3 bucket ${bucket.Name}: isPublic=${isPublic}, reason="${reason}"`);
       if (isPublic) {
         findings.push({
           id:          `s3_public_${bucket.Name}`,
@@ -169,7 +171,7 @@ app.post("/scan", async (req, res) => {
         });
       }
     }
-  } catch (e) { console.error("S3 check error:", e.message); }
+  } catch (e) { console.error("S3 check error:", e.name, e.message); }
 
   // ── 2. IAM: Root MFA ──────────────────────────────────────────────────
   try {
