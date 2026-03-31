@@ -9,35 +9,42 @@ import { GuardDutyClient, ListDetectorsCommand, GetDetectorCommand } from "@aws-
 import { RDSClient, DescribeDBInstancesCommand } from "@aws-sdk/client-rds";
 
 
-// ── Gemini API helper ──────────────────────────────────────────────────────
-// Model: gemini-2.5-flash-lite — best free tier (15 RPM, 1000 RPD, no cost)
-// Get your free key: https://aistudio.google.com/apikey
-const GEMINI_MODEL = "gemini-2.0-flash-lite"; // stable GA model
+// ── Groq API helper ───────────────────────────────────────────────────────
+// Free tier: 30 req/min, 500k tokens/day — no region restrictions
+// Get your free key: https://console.groq.com/keys
 
-async function callGemini(prompt, systemInstruction = null) {
-  if (!process.env.GEMINI_API_KEY) {
-    throw new Error("GEMINI_API_KEY environment variable is not set on the server.");
+async function callGroq(prompt, systemInstruction = null) {
+  if (!process.env.GROQ_API_KEY) {
+    throw new Error("GROQ_API_KEY environment variable is not set on the server.");
   }
-  const body = {
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-    generationConfig: { maxOutputTokens: 800, temperature: 0.3 },
-  };
+
+  const messages = [];
   if (systemInstruction) {
-    body.systemInstruction = { parts: [{ text: systemInstruction }] };
+    messages.push({ role: "system", content: systemInstruction });
   }
+  messages.push({ role: "user", content: prompt });
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${process.env.GEMINI_API_KEY}`,
-    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
-  );
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: "llama-3.1-8b-instant",
+      max_tokens: 1024,
+      temperature: 0.3,
+      messages,
+    }),
+  });
 
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`Gemini API error ${res.status}: ${err}`);
+    throw new Error(`Groq API error ${res.status}: ${err}`);
   }
 
   const data = await res.json();
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  return data.choices?.[0]?.message?.content || "";
 }
 
 const app = express();
@@ -434,7 +441,7 @@ CIS Control: ${finding.cis}
 
 Be direct and technical. No bullet points.`;
 
-    const explanation = await callGemini(prompt);
+    const explanation = await callGroq(prompt);
     res.json({ explanation: explanation || "No explanation generated." });
   } catch(err) {
     console.error("Explain error:", err.message);
@@ -462,7 +469,7 @@ Rules:
 - Include supporting resources (KMS keys, IAM roles, log groups) if needed
 - No prose outside the code block`;
 
-    const terraform = await callGemini(prompt);
+    const terraform = await callGroq(prompt);
     res.json({ terraform: terraform || "# Could not generate fix" });
   } catch(err) {
     console.error("Terraform error:", err.message);
@@ -487,12 +494,11 @@ Rules:
 - Use markdown sparingly — short bold phrases only`;
 
   try {
-    // Gemini uses a flat conversation format — combine history into a single prompt
     const lastUserMsg = messages.filter(m => m.role === "user").pop()?.content || "";
     const history = messages.slice(0, -1).map(m => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`).join("\n");
     const fullPrompt = history ? `${history}\n\nUser: ${lastUserMsg}` : lastUserMsg;
 
-    const reply = await callGemini(fullPrompt, systemInstruction);
+    const reply = await callGroq(fullPrompt, systemInstruction);
     res.json({ reply, content: [{ text: reply }] });
   } catch(err) {
     console.error("Chat error:", err.message);
