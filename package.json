@@ -14,11 +14,21 @@
     "@aws-sdk/client-cloudtrail": "^3.0.0",
     "@aws-sdk/client-ec2": "^3.0.0",
     "@aws-sdk/client-guardduty": "^3.0.0",
-    "@aws-sdk/client-iam": "^3.0.0",
+    "@aws-sdk/client-iam": "^3.1020.0",
     "@aws-sdk/client-rds": "^3.0.0",
     "@aws-sdk/client-s3": "^3.0.0",
     "@aws-sdk/client-sts": "^3.0.0",
     "cors": "^2.8.6",
     "express": "^4.18.2"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Nish3094/nishverse-backend.git"
+  },
+  "keywords": [],
+  "author": "",
+  "bugs": {
+    "url": "https://github.com/Nish3094/nishverse-backend/issues"
+  },
+  "homepage": "https://github.com/Nish3094/nishverse-backend#readme"
 }
