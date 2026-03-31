@@ -42,22 +42,23 @@ async function callGemini(prompt, systemInstruction = null) {
 
 const app = express();
 
-// ── CORS: only allow your GitHub Pages domain ──────────────────────────────
-app.use(cors({
+// ── CORS ───────────────────────────────────────────────────────────────────
+const corsOptions = {
   origin: [
-    "https://nish3094.github.io",
-    "http://localhost:3000",   // for local testing
-    "http://127.0.0.1:5500",  // for VS Code Live Server
-    "www.nishverse.com",
-    "nishverse.com",
+    "https://nishverse.com",       // custom domain
+    "https://www.nishverse.com",   // www variant
+    "https://nish3094.github.io",  // GitHub Pages fallback
+    "http://localhost:3000",       // local dev
+    "http://127.0.0.1:5500",       // VS Code Live Server
   ],
   methods: ["GET", "POST", "OPTIONS", "PUT", "DELETE"],
   allowedHeaders: ["Content-Type", "Authorization"],
-}));
+};
 
-
+// Preflight BEFORE express.json()
+app.options("*", cors(corsOptions));
+app.use(cors(corsOptions));
 app.use(express.json());
-app.options("*", cors());
 // ── Health check ───────────────────────────────────────────────────────────
 app.get("/", (_req, res) => res.json({ status: "lets go!!! Nishverse backend running" }));
 
