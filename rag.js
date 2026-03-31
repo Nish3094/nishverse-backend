@@ -12,19 +12,28 @@ const PINECONE_API_KEY  = process.env.PINECONE_API_KEY;
 const PINECONE_INDEX    = process.env.PINECONE_INDEX || "nishverse-cis";
 const PINECONE_BASE_URL = process.env.PINECONE_INDEX_HOST; // e.g. https://nishverse-cis-xxxx.svc.pinecone.io
 
-// ── Embedding via Groq (supports nomic-embed-text-v1.5) ────────────────────
+// ── Embedding via Hugging Face Inference API (free, no credit card) ────────
+// Model: nomic-ai/nomic-embed-text-v1.5 — 768 dimensions, great for RAG
+// Get free token: https://huggingface.co/settings/tokens (read token is enough)
 async function embed(text) {
-  const res = await fetch("https://api.groq.com/openai/v1/embeddings", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: "nomic-embed-text-v1.5-groq",
-      input: text,
-    }),
-  });
+  if (!process.env.HF_API_KEY) {
+    throw new Error("HF_API_KEY environment variable is not set.");
+  }
+
+  const res = await fetch(
+    "https://api-inference.huggingface.co/pipeline/feature-extraction/nomic-ai/nomic-embed-text-v1.5",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${process.env.HF_API_KEY}`,
+      },
+      body: JSON.stringify({
+        inputs: text,
+        options: { wait_for_model: true },
+      }),
+    }
+  );
 
   if (!res.ok) {
     const err = await res.text();
@@ -32,7 +41,10 @@ async function embed(text) {
   }
 
   const data = await res.json();
-  return data.data?.[0]?.embedding;
+
+  // HF returns either a flat array (single input) or nested array
+  if (Array.isArray(data[0])) return data[0];
+  return data;
 }
 
 // ── Pinecone helpers ────────────────────────────────────────────────────────
