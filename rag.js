@@ -13,25 +13,23 @@ const PINECONE_INDEX    = process.env.PINECONE_INDEX || "nishverse-cis";
 const PINECONE_BASE_URL = process.env.PINECONE_INDEX_HOST; // e.g. https://nishverse-cis-xxxx.svc.pinecone.io
 
 // ── Embedding via Hugging Face Inference API (free, no credit card) ────────
-// Model: nomic-ai/nomic-embed-text-v1.5 — 768 dimensions, great for RAG
+// Model: BAAI/bge-large-en-v1.5 — 1024 dimensions — matches your Pinecone index
 // Get free token: https://huggingface.co/settings/tokens (read token is enough)
 async function embed(text) {
   if (!process.env.HF_API_KEY) {
     throw new Error("HF_API_KEY environment variable is not set.");
   }
 
+  const MODEL = "BAAI/bge-large-en-v1.5";  // 1024 dimensions — matches your Pinecone index
   const res = await fetch(
-    "https://router.huggingface.co/hf-inference/pipeline/feature-extraction/nomic-ai/nomic-embed-text-v1.5",
+    `https://router.huggingface.co/hf-inference/models/${MODEL}/pipeline/feature-extraction`,
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${process.env.HF_API_KEY}`,
       },
-      body: JSON.stringify({
-        inputs: text,
-        options: { wait_for_model: true },
-      }),
+      body: JSON.stringify({ inputs: text }),
     }
   );
 
@@ -42,7 +40,8 @@ async function embed(text) {
 
   const data = await res.json();
 
-  // HF returns either a flat array (single input) or nested array
+  // HF returns nested array for single string input — unwrap one level
+  if (Array.isArray(data[0]) && Array.isArray(data[0][0])) return data[0][0];
   if (Array.isArray(data[0])) return data[0];
   return data;
 }
