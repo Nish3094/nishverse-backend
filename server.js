@@ -12,7 +12,7 @@ import { RDSClient, DescribeDBInstancesCommand } from "@aws-sdk/client-rds";
 // ── Gemini API helper ──────────────────────────────────────────────────────
 // Model: gemini-2.5-flash-lite — best free tier (15 RPM, 1000 RPD, no cost)
 // Get your free key: https://aistudio.google.com/apikey
-const GEMINI_MODEL = "gemini-2.0-flash"; // stable GA model
+const GEMINI_MODEL = "gemini-2.0-flash-lite"; // stable GA model
 
 async function callGemini(prompt, systemInstruction = null) {
   if (!process.env.GEMINI_API_KEY) {
