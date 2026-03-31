@@ -468,8 +468,15 @@ ${cisContext}` : ""}
 
 Be direct and technical. No bullet points. Ground your explanation in the CIS benchmark guidance above.`;
 
+    console.log(`[RAG] /explain retrieved context (${cisContext ? cisContext.length : 0} chars):`, cisContext ? cisContext.slice(0, 120) + "..." : "NONE — no RAG context");
     const explanation = await callGroq(prompt);
-    res.json({ explanation: explanation || "No explanation generated." });
+    res.json({
+      explanation: explanation || "No explanation generated.",
+      ragSources: cisContext
+        ? cisContext.split("---").map(s => s.trim().split("\n")[0]).filter(Boolean) // first line of each chunk = "[CIS X.X] Title"
+        : [],
+      ragContextUsed: !!cisContext,
+    });
   } catch(err) {
     console.error("Explain error:", err.message);
     res.status(500).json({ error: err.message });
@@ -507,8 +514,15 @@ Rules:
 - Include supporting resources (KMS keys, IAM roles, log groups) if needed
 - No prose outside the code block`;
 
+    console.log(`[RAG] /terraform retrieved context (${cisContext ? cisContext.length : 0} chars):`, cisContext ? cisContext.slice(0, 120) + "..." : "NONE — no RAG context");
     const terraform = await callGroq(prompt);
-    res.json({ terraform: terraform || "# Could not generate fix" });
+    res.json({
+      terraform: terraform || "# Could not generate fix",
+      ragSources: cisContext
+        ? cisContext.split("---").map(s => s.trim().split("\n")[0]).filter(Boolean)
+        : [],
+      ragContextUsed: !!cisContext,
+    });
   } catch(err) {
     console.error("Terraform error:", err.message);
     res.status(500).json({ error: err.message });
