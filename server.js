@@ -7,6 +7,7 @@ import { EC2Client, DescribeSecurityGroupsCommand, DescribeVpcsCommand, Describe
 import { CloudTrailClient, DescribeTrailsCommand, GetTrailStatusCommand } from "@aws-sdk/client-cloudtrail";
 import { GuardDutyClient, ListDetectorsCommand, GetDetectorCommand } from "@aws-sdk/client-guardduty";
 import { RDSClient, DescribeDBInstancesCommand } from "@aws-sdk/client-rds";
+import { ingest, retrieve, ragHealthCheck } from "./rag.js";
 
 
 // ── Groq API helper ───────────────────────────────────────────────────────
@@ -68,6 +69,22 @@ app.use(cors(corsOptions));
 app.use(express.json());
 // ── Health check ───────────────────────────────────────────────────────────
 app.get("/", (_req, res) => res.json({ status: "lets go!!! Nishverse backend running" }));
+
+// ── RAG health check endpoint ───────────────────────────────────────────────
+app.get("/rag/status", async (_req, res) => {
+  const health = await ragHealthCheck();
+  res.json(health);
+});
+
+// ── Trigger re-ingest (call once after deploy) ──────────────────────────────
+app.post("/rag/ingest", async (_req, res) => {
+  try {
+    const result = await ingest();
+    res.json({ success: true, ...result });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
 
 // ── Helper: build AWS client with assumed-role credentials ─────────────────
 function makeClient(Client, creds, region = "us-east-1") {
@@ -431,7 +448,14 @@ app.post("/explain", async (req, res) => {
   if (!finding) return res.status(400).json({ error: "Missing finding" });
 
   try {
-    const prompt = `Explain the real-world risk of this AWS security finding in 3-4 sentences for a DevOps engineer. Then give ONE concrete attack scenario an adversary could exploit.
+    // Retrieve relevant CIS benchmark context from Pinecone
+    const cisContext = await retrieve(
+      `${finding.title} ${finding.description} ${finding.cis}`,
+      2,
+      finding.service
+    );
+
+    const prompt = `You are an AWS security expert. Explain the real-world risk of this finding in 3-4 sentences for a DevOps engineer. Then give ONE concrete attack scenario an adversary could exploit.
 
 Finding: "${finding.title}"
 Service: ${finding.service}
@@ -439,7 +463,10 @@ Resource: ${finding.resource}
 Description: ${finding.description}
 CIS Control: ${finding.cis}
 
-Be direct and technical. No bullet points.`;
+${cisContext ? `CIS Benchmark Guidance:
+${cisContext}` : ""}
+
+Be direct and technical. No bullet points. Ground your explanation in the CIS benchmark guidance above.`;
 
     const explanation = await callGroq(prompt);
     res.json({ explanation: explanation || "No explanation generated." });
@@ -455,6 +482,13 @@ app.post("/terraform", async (req, res) => {
   if (!finding) return res.status(400).json({ error: "Missing finding" });
 
   try {
+    // Retrieve CIS remediation guidance from Pinecone
+    const cisContext = await retrieve(
+      `${finding.title} remediation terraform ${finding.cis}`,
+      2,
+      finding.service
+    );
+
     const prompt = `Generate a complete, production-ready Terraform HCL snippet to remediate this AWS security finding.
 
 Finding: "${finding.title}"
@@ -462,10 +496,14 @@ Resource: ${finding.resource}
 Description: ${finding.description}
 CIS Control: ${finding.cis}
 
+${cisContext ? `CIS Benchmark Remediation Guidance:
+${cisContext}` : ""}
+
 Rules:
 - Output ONLY valid HCL inside a single fenced \`\`\`hcl code block
+- Follow the remediation steps from the CIS benchmark guidance above
 - Use realistic resource names matching the finding resource field
-- Add inline comments explaining WHY each attribute is set
+- Add inline comments explaining WHY each attribute is set (reference the CIS control)
 - Include supporting resources (KMS keys, IAM roles, log groups) if needed
 - No prose outside the code block`;
 
