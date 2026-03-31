@@ -30,5 +30,6 @@
   "bugs": {
     "url": "https://github.com/Nish3094/nishverse-backend/issues"
   },
-  "homepage": "https://github.com/Nish3094/nishverse-backend#readme"
+  "homepage": "https://github.com/Nish3094/nishverse-backend#readme",
+  "devDependencies": {}
 }

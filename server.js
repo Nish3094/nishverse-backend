@@ -46,7 +46,7 @@ app.use(cors({
     "http://localhost:3000",   // for local testing
     "http://127.0.0.1:5500",  // for VS Code Live Server
   ],
-  methods: ["GET", "POST"],
+  methods: ["GET", "POST", "OPTIONS"],
 }));
 
 app.use(express.json());
