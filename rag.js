@@ -97,18 +97,33 @@ async function pineconeStats() {
 export async function ingest() {
   console.log(`[RAG] Starting ingestion of ${CIS_CONTROLS.length} CIS controls...`);
 
-  // Check if already ingested
+  // Log raw Pinecone stats so we can see what the index reports
   const stats = await pineconeStats();
+  console.log(`[RAG] Pinecone stats:`, JSON.stringify(stats));
   const vectorCount = stats?.totalVectorCount || 0;
   if (vectorCount >= CIS_CONTROLS.length) {
     console.log(`[RAG] Index already has ${vectorCount} vectors — skipping ingest.`);
     return { skipped: true, vectorCount };
   }
 
+  // Test embedding on first control before processing all
+  console.log(`[RAG] Testing embed on first control...`);
+  try {
+    const testEmbed = await embed(CIS_CONTROLS[0].text);
+    console.log(`[RAG] Embed test OK — type: ${typeof testEmbed}, isArray: ${Array.isArray(testEmbed)}, length: ${Array.isArray(testEmbed) ? testEmbed.length : "N/A"}, sample: ${Array.isArray(testEmbed) ? testEmbed.slice(0,3) : testEmbed}`);
+  } catch (e) {
+    console.error(`[RAG] Embed test FAILED:`, e.message);
+    return { error: e.message };
+  }
+
   const vectors = [];
   for (const control of CIS_CONTROLS) {
     try {
       const embedding = await embed(control.text);
+      if (!Array.isArray(embedding) || embedding.length === 0) {
+        console.error(`[RAG] Bad embedding for ${control.id}: not an array or empty. Got:`, typeof embedding, JSON.stringify(embedding)?.slice(0, 100));
+        continue;
+      }
       vectors.push({
         id: control.id,
         values: embedding,
@@ -120,22 +135,34 @@ export async function ingest() {
           text:    control.text,
         },
       });
-      console.log(`[RAG] Embedded: ${control.id} (${control.control})`);
-      // Small delay to avoid rate limiting
-      await new Promise(r => setTimeout(r, 200));
+      console.log(`[RAG] Embedded ${control.id}: dim=${embedding.length}`);
+      await new Promise(r => setTimeout(r, 300));
     } catch (e) {
       console.error(`[RAG] Failed to embed ${control.id}:`, e.message);
     }
+  }
+
+  console.log(`[RAG] Embedding done. ${vectors.length}/${CIS_CONTROLS.length} succeeded. Upserting...`);
+
+  if (vectors.length === 0) {
+    console.error(`[RAG] No vectors to upsert — aborting.`);
+    return { error: "No vectors produced" };
   }
 
   // Upsert in batches of 10
   const batchSize = 10;
   for (let i = 0; i < vectors.length; i += batchSize) {
     const batch = vectors.slice(i, i + batchSize);
-    await pineconeUpsert(batch);
-    console.log(`[RAG] Upserted batch ${Math.floor(i / batchSize) + 1}`);
+    try {
+      const result = await pineconeUpsert(batch);
+      console.log(`[RAG] Upserted batch ${Math.floor(i / batchSize) + 1}:`, JSON.stringify(result));
+    } catch (e) {
+      console.error(`[RAG] Upsert batch ${Math.floor(i / batchSize) + 1} FAILED:`, e.message);
+    }
   }
 
+  const finalStats = await pineconeStats();
+  console.log(`[RAG] Final Pinecone stats:`, JSON.stringify(finalStats));
   console.log(`[RAG] Ingestion complete. ${vectors.length} vectors stored.`);
   return { ingested: vectors.length };
 }
