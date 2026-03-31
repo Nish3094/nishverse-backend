@@ -46,9 +46,10 @@ app.use(cors({
     "http://localhost:3000",   // for local testing
     "http://127.0.0.1:5500",  // for VS Code Live Server
   ],
-  methods: ["GET", "POST", "OPTIONS"],
-  allowedHeaders: ["Content-Type"],
+  methods: ["GET", "POST", "OPTIONS", "PUT", "DELETE"],
+  allowedHeaders: ["Content-Type", "Authorization"],
 }));
+
 
 app.use(express.json());
 app.options("*", cors());
