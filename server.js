@@ -48,6 +48,8 @@ app.use(cors({
     "https://nish3094.github.io",
     "http://localhost:3000",   // for local testing
     "http://127.0.0.1:5500",  // for VS Code Live Server
+    "www.nishverse.com",
+    "nishverse.com",
   ],
   methods: ["GET", "POST", "OPTIONS", "PUT", "DELETE"],
   allowedHeaders: ["Content-Type", "Authorization"],
