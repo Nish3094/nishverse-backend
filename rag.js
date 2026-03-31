@@ -21,7 +21,7 @@ async function embed(text) {
   }
 
   const res = await fetch(
-    "https://router.huggingface.co/pipeline/feature-extraction/nomic-ai/nomic-embed-text-v1.5",
+    "https://router.huggingface.co/hf-inference/pipeline/feature-extraction/nomic-ai/nomic-embed-text-v1.5",
     {
       method: "POST",
       headers: {
