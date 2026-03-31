@@ -47,12 +47,13 @@ app.use(cors({
     "http://127.0.0.1:5500",  // for VS Code Live Server
   ],
   methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type"],
 }));
 
 app.use(express.json());
-
+app.options("*", cors());
 // ── Health check ───────────────────────────────────────────────────────────
-app.get("/", (_req, res) => res.json({ status: "Nishverse backend running" }));
+app.get("/", (_req, res) => res.json({ status: "lets go!!! Nishverse backend running" }));
 
 // ── Helper: build AWS client with assumed-role credentials ─────────────────
 function makeClient(Client, creds, region = "us-east-1") {
